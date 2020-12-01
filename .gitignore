@@ -1,1 +1,7 @@
 venv/
+env/
+.env
+*.env
+env
+*.env.txt
+__pycache__/
