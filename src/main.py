@@ -1,72 +1,67 @@
-from flask import Flask, Response, jsonify, request, session, make_response
+from flask import Flask, Response, jsonify, request, session, make_response, g, redirect, url_for
 from flask_cors import cross_origin
 from errors import AuthError
-from functools import wraps
+from auth import check_for_token, login_required
+import functools
 import datetime
+import firebase
 import jwt
 import os
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FIRSTDAY_SECRETKEY")
 
-def check_for_token(func):
-    """ Declines access if the user doesn't have and provide the
-    approrpiate the JSON Web Token. """
-
-    @wraps(func)
-    # Ensures we can wrap any function with any type of arguments
-    def wrapped(*args, **kwargs):
-        token = request.args.get("token")
-        # if empty token, none was provided by user, is false
-        if not token:
-            return jsonify({"message": "Missing Token"}), 403
-        else:
-            try:
-                jwt.decode(token, app.secret_key)
-            except Exception as e:
-                return jsonify({'Message': "Invalid Token, " + str(e)}), 403
-            else:
-                return func(*args, **kwargs)
-
-    return wrapped
-
- 
-    
-@app.route("/", methods=["GET"])
-def health_endpoint():
-	data = {"msg": "Hello World"}
-	return jsonify(data)
 
 @app.route("/public")
 def public():
     return "Anyone can ping this endpoint"
+
 
 @app.route("/private")
 @check_for_token
 def private():
     return "Only Viewable with a unexpired token is passed in"
 
-@app.route("/auth/login", methods=["POST"])
-def login():
-    json_input = request.get_json()
-    username = json_input["username"]
-    password = json_input["password"]
 
-    if username and password == "password":
-        session["logged_in"] = True
-        token_for_user = jwt.encode(
-            {'user': username,
-             'exp': datetime.datetime.utcnow() + datetime.timedelta(seconds=60)
-            },
-            app.secret_key 
-        )
-        return jsonify({"token": token_for_user.decode("utf-8")})
+@app.route('/auth/register', methods=['POST'])
+def register():
+    return jsonify(firebase.register())
+
+
+@app.route('/auth/verifyEmail', methods=['POST'])
+def verifyEmail():
+    return firebase.verifyEmail()
+
+
+@app.route('/auth/login', methods=['POST'])
+def firebase_login():
+    return firebase.login()
+
+
+@app.route('/auth/logout', methods=['GET'])
+@login_required
+def firebase_logout():
+    return firebase.logout()
+
+
+@app.before_request
+# this gets executed before ANY request.
+def load_logged_in_user():
+    """If a user id is stored in the session, load the user object from
+    the database into ``g.user``."""
+    user = session.get("user")
+
+    try:
+        name = session.get('name')['first_name']
+    except:
+        name = None
+
+    if user is None:
+        g.user = None
+        g.name = None
     else:
-        return make_response(
-            "Unable to verify",
-            403,
-            {"WWW-Authenticatie": "Basic relam: 'login needed' "}
-        )
+        g.user = user
+        g.name = name
 
 
 if __name__ == "__main__":
