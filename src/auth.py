@@ -4,10 +4,45 @@
 # handle JWTs tokens and HTTP Authorization headers
 
 from errors import AuthError
-from flask import Flask, Response, jsonify, request, session, make_response
-from functools import wraps
+from flask import Flask, Response, jsonify, request, session, make_response, g, current_app
+import functools
 import jwt
+import datetime
 
+def login_required(view):
+    # Wrapper function to check if user is logged in.
+    @functools.wraps(view)
+    def wrapped_view(**kwargs):
+        if g.user is None:
+            return jsonify("User Not Logged In", 403)
+        return view(**kwargs)
+
+    return wrapped_view
+
+def check_for_token(func):
+    """ Declines access if the user doesn't have and provide the
+    approrpiate the JSON Web Token. """
+
+    @functools.wraps(func)
+    # Ensures we can wrap any function with any type of arguments
+    def wrapped(*args, **kwargs):
+        try:
+            json_body_input = request.get_json()
+            token = json_body_input.get("token")
+            jwt.decode(token, current_app.secret_key)
+
+        except AttributeError:
+            return jsonify({"message": "Missing Token"}), 403
+
+        except Exception:
+            # this catch includes all raised errors
+            # even jwt.exceptions.InvalidSignatureError
+            return jsonify({'Message': "Invalid Token"}), 403
+        
+        else:
+            return func(*args, **kwargs)
+
+    return wrapped
 
 def requires_scope(required_scope):
     """Determines if the required scope is present in the Access Token
@@ -51,3 +86,9 @@ def get_token_auth_header():
 
     token = parts[1]
     return token
+
+def create_jwt_token(email: str):
+    return  jwt.encode({'email': email,
+        'exp': datetime.datetime.utcnow() + datetime.timedelta(minutes=10)
+        },
+        current_app.secret_key)
